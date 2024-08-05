@@ -1,0 +1,7 @@
+build.txt
+*.exe
+*.dll
+*.jar
+*.aar
+stealServer
+bin/

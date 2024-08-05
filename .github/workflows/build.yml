@@ -1,0 +1,80 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs: 
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        goos: 
+          - linux
+          - windows
+          - android
+        goarch:
+          - amd64
+          - arm
+          - arm64
+
+        exclude:
+          - goos: android
+            goarch: arm
+          - goos: android
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+        shell: bash
+
+      - name: Setup env
+        run: |
+          if [ "${{ matrix.goos }}" == "windows" ]; then
+            echo "FILENAME=steal-${{ matrix.goos }}-${{ matrix.goarch }}.exe" >> $GITHUB_ENV
+          elif [ "${{ matrix.goos }}" == "android" ]; then
+            echo "FILENAME=steal-${{ matrix.goos }}-universal.aar" >> $GITHUB_ENV
+          else
+            echo "FILENAME=steal-${{ matrix.goos }}-${{ matrix.goarch }}" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          FILENAME: ${{ env.FILENAME }}
+        run: |
+          if [ "${{ matrix.goos }}" == "android" ]; then
+            gomobile bind -o ${{ env.FILENAME }} -androidapi 21 -target android -ldflags "-s -w" -trimpath -v ./engine
+          else
+            go build -o ${{ env.FILENAME }} -ldflags "-s -w" -trimpath
+          fi
+        shell: bash
+
+      - name: Upload to GitHub release
+        uses: svenstaro/upload-release-action@v2
+        env:
+          FILENAME: ${{ env.FILENAME }}
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          file: ${{ env.FILENAME }}
+          asset_name: ${{ env.FILENAME }}
