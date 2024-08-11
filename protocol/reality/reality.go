@@ -4,36 +4,32 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"steal/assistant"
-	"steal/protocol/reality/encryption"
 	"steal/protocol/reality/tlserver"
-
-	utls "github.com/refraction-networking/utls"
-
-	cryptoRand "crypto/rand"
-	mathRand "math/rand"
 	"steal/structure"
 	"strings"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
+	cryptoRand "crypto/rand"
+	mathRand "math/rand"
 )
 
 var (
 	minRandPacket = 400
 	maxRandPacket = 800
-
 )
 
 type RealityHandler struct {
 	Conn             *net.Conn
 	Config           *structure.BaseBound
-	uConn            *utls.UConn
+	utlsConn         *utls.UConn
+	tlsConn          net.Conn
 	userID           string
 	destAddr         string
 	destNetwork      string
 	authKey          []byte
 	nonce            []byte
 	cacheBuffer      []byte
-	cacheAlert       assistant.Alert
 	handshakeSuccess bool
 }
 
@@ -54,11 +50,11 @@ func (r *RealityHandler) ReadConnection() error {
 	if err != nil {
 		return fmt.Errorf("error handshake: %s", err)
 	}
+	r.tlsConn = tlsConn
 	r.handshakeSuccess = true
 	r.nonce = tlsConn.Random[:12]
 	r.authKey = tlsConn.AuthKey
 
-	
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
 	buffer, err := r.Read()
 	if err != nil {
@@ -97,7 +93,7 @@ func (r *RealityHandler) ReadConnection() error {
 	// Wait to receive SETTINGS[0]
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
 	buffer, err = r.Read()
-	if err != nil || !bytes.Equal(buffer, getH2Settings()){
+	if err != nil || !bytes.Equal(buffer, getH2Settings()) {
 		return err
 	}
 
@@ -121,51 +117,21 @@ func (r *RealityHandler) Read() (buffer []byte, err error) {
 		r.cacheBuffer = []byte{}
 		return
 	}
-	buffer, alertErr, err := assistant.ReadFullMessage(r.Conn)
-	switch alertErr {
-	case assistant.AlertSuccess:
-		buffer, err = r.decrypt(buffer)
-		if err != nil {
-			r.cacheAlert = assistant.AlertBadRecordMAC
-			return
-		}
-		if assistant.IsAlertBuffer(buffer){
-			err = fmt.Errorf("alert error")
-			return
-		}
-
-	case assistant.AlertFailedToReadFull:
-		r.cacheAlert = assistant.AlertCloseNotify
-	default:
-		err = fmt.Errorf("failed to read message")
-		r.cacheAlert = alertErr
+	buf := make([]byte, 8192)
+	n, err := r.tlsConn.Read(buf)
+	if err != nil{
+		return 
 	}
-
+	buffer = buf[:n]
 	return
 }
 
 func (r *RealityHandler) Write(buf []byte) (n int, err error) {
-	encryptBuffer, err := r.encrypt(buf)
-	if err != nil {
-		return
-	}
-	n, err = (*r.Conn).Write(encryptBuffer)
-	if err != nil {
-		return
-	}
-	return
+	return r.tlsConn.Write(buf)
 }
 
 func (r *RealityHandler) Close() error {
-	if r.cacheAlert != assistant.AlertCloseNotify{
-		r.sendAlert()
-	}
-
-	// Close connection
-	if err := (*r.Conn).Close(); err != nil {
-		return err
-	}
-	return nil
+	return r.tlsConn.Close()
 }
 
 func (r *RealityHandler) GetDestAddr() string {
@@ -202,7 +168,7 @@ func (r *RealityHandler) PrepareDestAddr(addr, network string, clientHello []byt
 	// Receive random packet
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
 	buffer, err := r.Read()
-	if err != nil || len(buffer) < minRandPacket{
+	if err != nil || len(buffer) < minRandPacket {
 		return err
 	}
 
@@ -214,26 +180,6 @@ func (r *RealityHandler) PrepareDestAddr(addr, network string, clientHello []byt
 
 	return nil
 }
-
-func (r *RealityHandler) encrypt(buffer []byte) ([]byte, error) {
-	encryptData, err := encryption.Encrypt(buffer, r.authKey, r.nonce)
-	if err != nil {
-		return nil, err
-	}
-	addHeader := tlserver.AddHeaderApplicationData(encryptData)
-	return addHeader, nil
-}
-
-func (r *RealityHandler) decrypt(buffer []byte) ([]byte, error) {
-	// ignore recordHeader
-	buffer = buffer[5:]
-	decryptData, err := encryption.Decrypt(buffer, r.authKey, r.nonce)
-	if err != nil {
-		return nil, err
-	}
-	return decryptData, nil
-}
-
 
 func (r *RealityHandler) AddUploadUsage(uploadCount uintptr) {
 	for _, user := range r.Config.Users {
@@ -251,18 +197,16 @@ func (r *RealityHandler) AddDwonloadUsage(downloadCount uintptr) {
 	}
 }
 
-
 func (r *RealityHandler) SetReadDeadline(deadline int64) {
-	if deadline == 0{
+	if deadline == 0 {
 		deadline = 15
 	}
-	(*r.Conn).SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
+	r.tlsConn.SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
 }
 
 func (r *RealityHandler) SetWriteDeadline(deadline int64) {
-	if deadline == 0{
+	if deadline == 0 {
 		deadline = 15
 	}
-	(*r.Conn).SetWriteDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
+	r.tlsConn.SetWriteDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
 }
-

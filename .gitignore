@@ -5,3 +5,4 @@ build.txt
 *.aar
 stealServer
 bin/
+*.json

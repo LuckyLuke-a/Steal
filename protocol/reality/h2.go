@@ -15,7 +15,7 @@ var (
 
 	h2WindowUpdate []byte = []byte{0, 0, 4, 8, 0, 0, 0, 0, 0, 0, 239, 0, 1}
 
-	h2Settings []byte = []byte{0, 0, 0, 4, 1, 0, 0, 0, 0, 0}
+	h2Settings []byte = []byte{0, 0, 0, 4, 1, 0, 0, 0, 0}
 
 	chromeUserAgent []byte = []byte("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/536.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/536.36")
 
@@ -27,19 +27,6 @@ func getH2InitMessage() []byte {
 	initMessage := append([]byte{}, h2StreamMagic...)
 	initMessage = append(initMessage, h2StreamSettings...)
 	initMessage = append(initMessage, h2WindowUpdate...)
-
-	// Temp Value 
-	// -----------------------------
-	// -----------------------------
-	// -----------------------------
-	// -----------------------------
-	initMessage = append(initMessage, 1)
-	// -----------------------------
-	// -----------------------------
-	// -----------------------------
-	// -----------------------------
-
-
 	return initMessage
 }
 

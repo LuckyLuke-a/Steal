@@ -2,8 +2,6 @@ package encryption
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -81,37 +79,3 @@ func ValidateSessionId(random, sessionId, publicKey []byte, inervalSecond, skewS
 	}
 	return nil, fmt.Errorf("failed to validate session id")
 }
-
-
-func Encrypt(plainText, key, nonce []byte) ([]byte, error) {
-    block, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
-	aesGCM, err := cipher.NewGCM(block)
-    if err != nil {
-        return nil, err
-    }
-    cipherText := aesGCM.Seal(nil, nonce, plainText, nil)
-    return cipherText, nil
-}
-
-
-
-func Decrypt(cipherText, key, nonce []byte) ([]byte, error) {
-    block, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
-    aesGCM, err := cipher.NewGCM(block)
-    if err != nil {
-        return nil, err
-    }
-    plainText, err := aesGCM.Open(nil, nonce, cipherText, nil)
-    if err != nil {
-        return nil, err
-    }
-    return plainText, nil
-}
-
-

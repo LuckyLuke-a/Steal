@@ -10,9 +10,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"steal/assistant"
 	"steal/protocol/reality/encryption"
-	"steal/protocol/reality/tlserver"
 	"strings"
 	"unsafe"
 
@@ -33,9 +31,10 @@ func (r *RealityHandler) makeHandshake() error {
 	if err := utlsConn.BuildHandshakeState(); err != nil {
 		return err
 	}
-	r.uConn = utlsConn
+	r.utlsConn = utlsConn
+	r.tlsConn = utlsConn
 
-	utlsClientHello := r.uConn.HandshakeState.Hello
+	utlsClientHello := r.utlsConn.HandshakeState.Hello
 	publicKey, _, err := encryption.GenerateAuthKey(
 		utlsClientHello.Random,
 		r.Config.ProtocolSettings.IntervalSecond,
@@ -47,12 +46,12 @@ func (r *RealityHandler) makeHandshake() error {
 	}
 
 	preparePublicKey, err := ecdh.X25519().NewPublicKey(publicKey)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
-	r.authKey, err = r.uConn.HandshakeState.State13.EcdheKey.ECDH(preparePublicKey)
-	if err != nil{
+	r.authKey, err = r.utlsConn.HandshakeState.State13.EcdheKey.ECDH(preparePublicKey)
+	if err != nil {
 		return err
 	}
 	r.nonce = utlsClientHello.Random[:12]
@@ -66,7 +65,7 @@ func (r *RealityHandler) makeHandshake() error {
 	copy(utlsClientHello.Raw[39:], utlsClientHello.SessionId)
 
 	// Handshake to stealServer
-	if err := r.uConn.Handshake(); err != nil {
+	if err := r.utlsConn.Handshake(); err != nil {
 		log.Println("[Reality] handshake failed: ", err)
 		return err
 	}
@@ -80,8 +79,8 @@ func (r *RealityHandler) makeHandshake() error {
 
 func (r *RealityHandler) verifyCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 	getHost := strings.Split(r.Config.ProtocolSettings.SNI, ":")[0]
-	p, _ := reflect.TypeOf(r.uConn.Conn).Elem().FieldByName("peerCertificates")
-	certs := *(*([]*x509.Certificate))(unsafe.Pointer(uintptr(unsafe.Pointer(r.uConn.Conn)) + p.Offset))
+	p, _ := reflect.TypeOf(r.utlsConn.Conn).Elem().FieldByName("peerCertificates")
+	certs := *(*([]*x509.Certificate))(unsafe.Pointer(uintptr(unsafe.Pointer(r.utlsConn.Conn)) + p.Offset))
 	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
 		h := hmac.New(sha512.New, r.authKey)
 		h.Write(pub)
@@ -111,27 +110,3 @@ func (r *RealityHandler) isValidUser(clientID string) bool {
 	}
 	return false
 }
-
-
-
-func (r *RealityHandler) sendAlert() error {
-	alertLevel := assistant.AlertLevelError
-	alert := []byte{byte(alertLevel), byte(r.cacheAlert)}
-	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
-	if r.handshakeSuccess{
-		alert = append(alert, 1)
-		if _, err := r.Write(alert); err != nil{
-			return err
-		}
-	}else{
-		encryptBuffer := tlserver.AddHeaderApplicationData(alert)
-		_, err := (*r.Conn).Write(encryptBuffer)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-
-
