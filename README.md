@@ -99,7 +99,7 @@
     ],
     "outbounds": [
         {
-            "protocol": "freedom",
+            "protocol": "freedom"
         }
     ],
     "logging": true,

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"steal/assistant"
 	"steal/protocol/reality/encryption"
+	"steal/protocol/reality/tlserver"
 	"strings"
 	"unsafe"
 
@@ -113,16 +114,21 @@ func (r *RealityHandler) isValidUser(clientID string) bool {
 
 
 
-func (r *RealityHandler) sendAlert(alertError assistant.Alert) error {
+func (r *RealityHandler) sendAlert() error {
 	alertLevel := assistant.AlertLevelError
-	if alertError == assistant.AlertCloseNotify{
-		alertLevel = assistant.AlertLevelWarning
-	}
-
-	alert := []byte{byte(alertLevel), byte(alertError)}
+	alert := []byte{byte(alertLevel), byte(r.cacheAlert)}
 	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
-	if _, err := r.Write(alert); err != nil{
-		return err
+	if r.handshakeSuccess{
+		alert = append(alert, 1)
+		if _, err := r.Write(alert); err != nil{
+			return err
+		}
+	}else{
+		encryptBuffer := tlserver.AddHeaderApplicationData(alert)
+		_, err := (*r.Conn).Write(encryptBuffer)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

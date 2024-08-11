@@ -7,7 +7,7 @@ import (
 	"steal/assistant"
 )
 
-// !!! CHANGE THESE VARIABLES IF YOU KNOW EXACTLY WHAT TO DO !!!
+// Http2 initial messages
 var (
 	h2StreamMagic []byte = []byte{80, 82, 73, 32, 42, 32, 72, 84, 84, 80, 47, 50, 46, 48, 13, 10, 13, 10, 83, 77, 13, 10, 13, 10}
 

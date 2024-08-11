@@ -149,9 +149,8 @@ func (r *RealityHandler) Write(buf []byte) (n int, err error) {
 }
 
 func (r *RealityHandler) Close() error {
-	// If handshake success, send alert
-	if r.handshakeSuccess && r.cacheAlert != assistant.AlertCloseNotify{
-		r.sendAlert(r.cacheAlert)
+	if r.cacheAlert != assistant.AlertCloseNotify{
+		r.sendAlert()
 	}
 
 	// Close connection

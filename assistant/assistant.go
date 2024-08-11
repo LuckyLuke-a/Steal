@@ -67,7 +67,7 @@ func ReadFullMessage(conn *net.Conn) ([]byte, Alert, error) {
 
 
 func IsAlertBuffer(buffer []byte) bool{
-	if (len(buffer) == 2) && (buffer[0] == byte(AlertLevelError) || buffer[0] == byte(AlertLevelWarning)){
+	if (len(buffer) == 3) && (buffer[0] == byte(AlertLevelError) || buffer[0] == byte(AlertLevelWarning)){
 		return true
 	}
 	return false
