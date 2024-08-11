@@ -17,6 +17,12 @@ import (
 	"time"
 )
 
+var (
+	minRandPacket = 400
+	maxRandPacket = 800
+
+)
+
 type RealityHandler struct {
 	Conn             *net.Conn
 	Config           *structure.BaseBound
@@ -58,14 +64,15 @@ func (r *RealityHandler) ReadConnection() error {
 	if err != nil {
 		return err
 	}
-	if bytes.Equal(buffer, getH2InitMessage()) {
-		r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
-		buffer, err = r.Read()
-		if err != nil {
-			return err
-		}
+	if !bytes.Equal(buffer, getH2InitMessage()) {
+		return fmt.Errorf("incorrect first packet")
 	}
 
+	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
+	buffer, err = r.Read()
+	if err != nil {
+		return err
+	}
 	clientID, destAddr, destNetwork, clientHello, err := decryptH2HeadersMessage(buffer)
 	if err != nil {
 		return err
@@ -75,7 +82,7 @@ func (r *RealityHandler) ReadConnection() error {
 	}
 	r.userID = clientID
 
-	randPacketCount := mathRand.Intn(800-400+1) + 400
+	randPacketCount := mathRand.Intn(maxRandPacket-minRandPacket+1) + minRandPacket
 	randPacket := make([]byte, randPacketCount)
 	if _, err := cryptoRand.Read(randPacket); err != nil {
 		return err
@@ -89,7 +96,8 @@ func (r *RealityHandler) ReadConnection() error {
 
 	// Wait to receive SETTINGS[0]
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
-	if _, err := r.Read(); err != nil {
+	buffer, err = r.Read()
+	if err != nil || !bytes.Equal(buffer, getH2Settings()){
 		return err
 	}
 
@@ -193,7 +201,8 @@ func (r *RealityHandler) PrepareDestAddr(addr, network string, clientHello []byt
 
 	// Receive random packet
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
-	if _, err := r.Read(); err != nil {
+	buffer, err := r.Read()
+	if err != nil || len(buffer) < minRandPacket{
 		return err
 	}
 
