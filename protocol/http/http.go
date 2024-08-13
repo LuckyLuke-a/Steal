@@ -21,7 +21,7 @@ type HttpHandler struct {
 	cacheBuffer []byte
 }
 
-func (h *HttpHandler) ReadConnection() error {
+func (h *HttpHandler) ReadDestAddr() error {
 	buffer, err := h.Read()
 	if err != nil{
 		return err
@@ -95,7 +95,7 @@ func (h *HttpHandler) Handshake() error {
 	return nil
 }
 
-func (h *HttpHandler) PrepareDestAddr(addr string, network string, clientHello []byte) error {
+func (h *HttpHandler) SendDestAddr(addr string, network string, clientHello []byte) error {
 	return nil
 }
 

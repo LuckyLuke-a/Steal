@@ -13,10 +13,18 @@ import (
 	"steal/protocol/reality/encryption"
 	"strings"
 	"unsafe"
-
 	utls "github.com/refraction-networking/utls"
+
 )
 
+var (
+	tlsClientHello = []byte{22, 3}
+	tlsServerHello = []byte{22, 3, 3}
+)
+
+
+
+// Make tls handshake with steal server
 func (r *RealityHandler) makeHandshake() error {
 	getHost := strings.Split(r.Config.ProtocolSettings.SNI, ":")[0]
 
@@ -31,10 +39,9 @@ func (r *RealityHandler) makeHandshake() error {
 	if err := utlsConn.BuildHandshakeState(); err != nil {
 		return err
 	}
-	r.utlsConn = utlsConn
 	r.tlsConn = utlsConn
 
-	utlsClientHello := r.utlsConn.HandshakeState.Hello
+	utlsClientHello := utlsConn.HandshakeState.Hello
 	publicKey, _, err := encryption.GenerateAuthKey(
 		utlsClientHello.Random,
 		r.Config.ProtocolSettings.IntervalSecond,
@@ -50,22 +57,19 @@ func (r *RealityHandler) makeHandshake() error {
 		return err
 	}
 
-	r.authKey, err = r.utlsConn.HandshakeState.State13.EcdheKey.ECDH(preparePublicKey)
+	r.authKey, err = utlsConn.HandshakeState.State13.EcdheKey.ECDH(preparePublicKey)
 	if err != nil {
 		return err
 	}
-	r.nonce = utlsClientHello.Random[:12]
 	newSessionId := encryption.GenerateSessionId(utlsClientHello.Random, r.authKey)
 	if newSessionId == nil {
 		return fmt.Errorf("failed to generate session id")
 	}
 
-	// Replace session id
 	utlsClientHello.SessionId = newSessionId
 	copy(utlsClientHello.Raw[39:], utlsClientHello.SessionId)
 
-	// Handshake to stealServer
-	if err := r.utlsConn.Handshake(); err != nil {
+	if err := utlsConn.Handshake(); err != nil {
 		log.Println("[Reality] handshake failed: ", err)
 		return err
 	}
@@ -77,10 +81,14 @@ func (r *RealityHandler) makeHandshake() error {
 	return nil
 }
 
+
+// Check the received certficate from server, has server signature or not
 func (r *RealityHandler) verifyCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	utlsConn := r.tlsConn.(*utls.UConn)
 	getHost := strings.Split(r.Config.ProtocolSettings.SNI, ":")[0]
-	p, _ := reflect.TypeOf(r.utlsConn.Conn).Elem().FieldByName("peerCertificates")
-	certs := *(*([]*x509.Certificate))(unsafe.Pointer(uintptr(unsafe.Pointer(r.utlsConn.Conn)) + p.Offset))
+	
+	p, _ := reflect.TypeOf(utlsConn.Conn).Elem().FieldByName("peerCertificates")
+	certs := *(*([]*x509.Certificate))(unsafe.Pointer(uintptr(unsafe.Pointer(utlsConn.Conn)) + p.Offset))
 	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
 		h := hmac.New(sha512.New, r.authKey)
 		h.Write(pub)
@@ -102,6 +110,7 @@ func (r *RealityHandler) verifyCert(rawCerts [][]byte, verifiedChains [][]*x509.
 	return nil
 }
 
+// Check the received userID exist or not
 func (r *RealityHandler) isValidUser(clientID string) bool {
 	for _, user := range r.Config.Users {
 		if strings.EqualFold(clientID, user.ID) {
@@ -110,3 +119,14 @@ func (r *RealityHandler) isValidUser(clientID string) bool {
 	}
 	return false
 }
+
+// Check the received packet is handshake packet or not
+func isHandshakePacket(buffer []byte) bool{
+	if bytes.HasPrefix(buffer, tlsClientHello) || bytes.HasPrefix(buffer, tlsServerHello){
+		return true
+	}
+	return false
+}
+
+
+

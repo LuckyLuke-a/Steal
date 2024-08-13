@@ -16,16 +16,16 @@ var (
 
 type ProtocolHandler interface {
 	// Retrive destAddr and destNetwork
-	ReadConnection() error  
-	
+	ReadDestAddr() error  
+
+	// Send addr (addr+network)
+	SendDestAddr(addr, network string, clientHello []byte) error
+
 	// Send success message (connection established)
 	ConnectionEstablished() error
 
 	// Estalish connection to server
 	Handshake() error
-
-	// Encrypt addr (addr+network)
-	PrepareDestAddr(addr, network string, clientHello []byte) error
 
 	// Read buffer
 	Read() ([]byte, error)

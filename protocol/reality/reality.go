@@ -4,36 +4,34 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"steal/protocol/reality/encryption"
 	"steal/protocol/reality/tlserver"
 	"steal/structure"
 	"strings"
 	"time"
+	"math/rand"
 
-	utls "github.com/refraction-networking/utls"
-	cryptoRand "crypto/rand"
-	mathRand "math/rand"
 )
 
 var (
-	minRandPacket = 400
-	maxRandPacket = 800
+	minRandPacket = 600
+	maxRandPacket = 1300
 )
 
 type RealityHandler struct {
-	Conn             *net.Conn
-	Config           *structure.BaseBound
-	utlsConn         *utls.UConn
-	tlsConn          net.Conn
-	userID           string
-	destAddr         string
-	destNetwork      string
-	authKey          []byte
-	nonce            []byte
-	cacheBuffer      []byte
-	handshakeSuccess bool
+	Conn                 *net.Conn
+	Config               *structure.BaseBound
+	tlsConn              net.Conn
+	userID               string
+	destAddr             string
+	destNetwork          string
+	authKey              []byte
+	cacheBuffer          []byte
+	handshakeSuccess     bool
+	firstPacketProcessed bool
 }
 
-func (r *RealityHandler) ReadConnection() error {
+func (r *RealityHandler) ReadDestAddr() error {
 	onlyHostSni := strings.Split(r.Config.ProtocolSettings.SNI, ":")[0]
 
 	config := tlserver.Config{
@@ -52,55 +50,85 @@ func (r *RealityHandler) ReadConnection() error {
 	}
 	r.tlsConn = tlsConn
 	r.handshakeSuccess = true
-	r.nonce = tlsConn.Random[:12]
 	r.authKey = tlsConn.AuthKey
 
+	// Wait to receive h2 initial message
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
 	buffer, err := r.Read()
 	if err != nil {
 		return err
 	}
 	if !bytes.Equal(buffer, getH2InitMessage()) {
-		return fmt.Errorf("incorrect first packet")
+		return fmt.Errorf("incorrect h2 initial message")
 	}
 
+	// Wait to receive first fragmented packet
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
 	buffer, err = r.Read()
 	if err != nil {
 		return err
 	}
-	clientID, destAddr, destNetwork, clientHello, err := decryptH2HeadersMessage(buffer)
-	if err != nil {
-		return err
-	}
-	if !r.isValidUser(clientID) {
-		return fmt.Errorf("invalid user id: %s", clientID)
-	}
-	r.userID = clientID
 
-	randPacketCount := mathRand.Intn(maxRandPacket-minRandPacket+1) + minRandPacket
-	randPacket := make([]byte, randPacketCount)
-	if _, err := cryptoRand.Read(randPacket); err != nil {
-		return err
-	}
+	// Wait, look like we process the user message
+	time.Sleep(time.Microsecond * time.Duration(rand.Intn(150-50)+50))
 
-	// Send random packet to client
+	// Generate random packet
+	randLength := rand.Intn(200-100+1) + 100
+	randomPacket := encryption.GenerateRandomPacket(r.authKey, 60, randLength)
+
+	countFakePacket := rand.Intn(4) + 1
+	randomPacket[0] = byte(countFakePacket)
 	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
-	if _, err := r.Write(randPacket); err != nil {
+	if _, err := r.Write(randomPacket); err != nil {
 		return err
 	}
 
-	// Wait to receive SETTINGS[0]
+	// Wait to recv h2 settings
 	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
-	buffer, err = r.Read()
-	if err != nil || !bytes.Equal(buffer, getH2Settings()) {
+	_, err = r.Read()
+	if err != nil {
 		return err
 	}
 
+	for range countFakePacket {
+		time.Sleep(time.Microsecond * time.Duration(rand.Intn(150-50)+50)) // likely we proccess the message
+		randLength = rand.Intn(maxRandPacket-minRandPacket+1) + minRandPacket
+		randomPacket = encryption.GenerateRandomPacket(r.authKey, 100, randLength)
+		r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
+		if _, err := r.Write(randomPacket); err != nil {
+			return err
+		}
+	}
+
+	var reassemblePacket [][]byte
+
+	packetData := buffer[:2]                                // Get currentIndex, allIndex
+	reassemblePacket = append(reassemblePacket, buffer[2:]) // Skip currentIndex, allIndex
+	allPacketLength := packetData[1]                        // Get allIndex
+
+	for _ = range allPacketLength - 1 {
+		buffer, err = r.Read()
+		if err != nil {
+			return err
+		}
+		reassemblePacket = append(reassemblePacket, buffer[2:])
+	}
+
+	// Reassemble user clientHello message
+	buffer = encryption.RemovePadding(reassemblePacket, r.Config.ProtocolSettings.Padding, r.Config.ProtocolSettings.SubChunk)
+
+	// decrypt message
+	clientID, destAddr, destNetwork, clientHello, err := decryptH2HeadersMessage(buffer)
+	if err != nil || !r.isValidUser(clientID) {
+		return err
+	}
+
+	// Set the vars
+	r.userID = clientID
 	r.destAddr = destAddr
 	r.destNetwork = destNetwork
 	r.cacheBuffer = clientHello
-
+	r.firstPacketProcessed = true
 	return nil
 
 }
@@ -119,19 +147,52 @@ func (r *RealityHandler) Read() (buffer []byte, err error) {
 	}
 	buf := make([]byte, 8192)
 	n, err := r.tlsConn.Read(buf)
-	if err != nil{
-		return 
+	if err != nil {
+		return
 	}
 	buffer = buf[:n]
+	if r.firstPacketProcessed && len(buffer) > 6 && isHandshakePacket(buffer[6:]){
+		var reassmeblePacket [][]byte
+		lenPackets := buffer[1]
+		reassmeblePacket = append(reassmeblePacket, buffer[2:])
+		for range lenPackets-1{
+			buf := make([]byte, 8192)
+			n, err = r.tlsConn.Read(buf)
+			if err != nil {
+				return
+			}
+			buffer = buf[:n]
+			reassmeblePacket = append(reassmeblePacket, buffer[2:])
+		}
+		buffer = encryption.RemovePadding(reassmeblePacket, r.Config.ProtocolSettings.Padding, r.Config.ProtocolSettings.SubChunk)
+	}
+
 	return
 }
 
 func (r *RealityHandler) Write(buf []byte) (n int, err error) {
+	if r.firstPacketProcessed && isHandshakePacket(buf){
+		minSplitSize := 1000
+		maxSplitSize := 2000
+		slicesChunk := encryption.AddPadding(buf, minSplitSize, maxSplitSize, r.Config.ProtocolSettings.Padding, r.Config.ProtocolSettings.SubChunk)
+		for i, chunk := range slicesChunk{
+			chunk = append([]byte{byte(i + 1), byte(len(slicesChunk))}, chunk...)
+			r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
+			if _, err := r.Write(chunk); err != nil {
+				return 0, err
+			}
+			time.Sleep(time.Microsecond * time.Duration(rand.Intn(150-50)+50))
+		}
+		return
+	}
 	return r.tlsConn.Write(buf)
 }
 
 func (r *RealityHandler) Close() error {
-	return r.tlsConn.Close()
+	if r.handshakeSuccess {
+		return r.tlsConn.Close()
+	}
+	return (*r.Conn).Close()
 }
 
 func (r *RealityHandler) GetDestAddr() string {
@@ -146,7 +207,7 @@ func (r *RealityHandler) ConnectionEstablished() error {
 	return nil
 }
 
-func (r *RealityHandler) PrepareDestAddr(addr, network string, clientHello []byte) error {
+func (r *RealityHandler) SendDestAddr(addr, network string, clientHello []byte) error {
 	// Write Magic, SETTINGS[0], WINDOW_UPDATE[0]
 	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
 	if _, err := r.Write(getH2InitMessage()); err != nil {
@@ -157,26 +218,57 @@ func (r *RealityHandler) PrepareDestAddr(addr, network string, clientHello []byt
 	clientID := r.Config.Users[0].ID
 	r.userID = clientID
 
-	// Sent encrypted(destAddr, destNetwork) to server
-	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
-	if _, err := r.Write(getH2HeadersMessage(clientID, addr, network, clientHello)); err != nil {
-		return err
+	// Prepare first packet
+	firstInitialPacket := getH2HeadersMessage(clientID, addr, network, clientHello)
+	slicesChunk := encryption.AddPadding(
+		firstInitialPacket, 
+		r.Config.ProtocolSettings.MinSplitPacket, 
+		r.Config.ProtocolSettings.MaxSplitPacket,
+		r.Config.ProtocolSettings.Padding, 
+		r.Config.ProtocolSettings.SubChunk,
+	)
+
+	for i, chunk := range slicesChunk {
+		chunk = append([]byte{byte(i + 1), byte(len(slicesChunk))}, chunk...)
+		r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
+		if _, err := r.Write(chunk); err != nil {
+			return err
+		}
+		if i == 0 {
+			// Receive random packet from server
+			r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
+			buffer, err := r.Read()
+			if err != nil {
+				return err
+			}
+
+			randomPacket := encryption.GenerateRandomPacket(r.authKey, 60, 100)
+			if !bytes.HasPrefix(buffer[1:], randomPacket[1:]){
+				return fmt.Errorf("incorrect random-byte")
+			}
+			countFakePacket := buffer[0]
+			// Send SETTINGS[0]
+			r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
+			if _, err := r.Write(getH2Settings()); err != nil {
+				return err
+			}
+			for range countFakePacket {
+				// Recv random packet from server
+				r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
+				buffer, err = r.Read()
+				if err != nil {
+					return err
+				}
+				randomPacket = encryption.GenerateRandomPacket(r.authKey, 100, minRandPacket)
+				if !bytes.HasPrefix(buffer, randomPacket){
+					return fmt.Errorf("random byte modified")
+				}
+			}
+		}
 	}
 
 	r.AddUploadUsage(uintptr(len(clientHello)))
-
-	// Receive random packet
-	r.SetReadDeadline(r.Config.ProtocolSettings.ReadDeadLineSecond)
-	buffer, err := r.Read()
-	if err != nil || len(buffer) < minRandPacket {
-		return err
-	}
-
-	// Send SETTINGS[0]
-	r.SetWriteDeadline(r.Config.ProtocolSettings.WriteDeadLineSecond)
-	if _, err := r.Write(getH2Settings()); err != nil {
-		return err
-	}
+	r.firstPacketProcessed = true
 
 	return nil
 }

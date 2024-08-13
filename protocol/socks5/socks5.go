@@ -41,7 +41,7 @@ type Socks5Handler struct{
 
 
 
-func (s *Socks5Handler) ReadConnection() error {
+func (s *Socks5Handler) ReadDestAddr() error {
 	// Read ver, nmethods, methods
 	buf := make([]byte, 3)
 	if _, err := io.ReadFull(*s.Conn, buf); err != nil {
@@ -167,7 +167,7 @@ func (s *Socks5Handler) Handshake() error{
 }
 
 
-func (s *Socks5Handler) PrepareDestAddr(addr, network string, clientHello []byte) error{
+func (s *Socks5Handler) SendDestAddr(addr, network string, clientHello []byte) error{
 	return nil
 }
 

@@ -12,7 +12,7 @@ type FreedomHandler struct {
 }
 
 
-func (f *FreedomHandler) ReadConnection() error {
+func (f *FreedomHandler) ReadDestAddr() error {
 	return nil
 }
 
@@ -50,7 +50,7 @@ func (f *FreedomHandler) Handshake() error {
 	return nil
 }
 
-func (f *FreedomHandler) PrepareDestAddr(addr string, network string, clientHello []byte) error {
+func (f *FreedomHandler) SendDestAddr(addr string, network string, clientHello []byte) error {
 	return nil
 }
 

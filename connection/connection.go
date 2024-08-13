@@ -56,7 +56,7 @@ func (c *Connection) handleConnection(clientConn *net.Conn) {
 	defer inboundHandler.Close()
 
 	// Read destAddr, destNetwork from inbound connection
-	if err := inboundHandler.ReadConnection(); err != nil {
+	if err := inboundHandler.ReadDestAddr(); err != nil {
 		log.Println("[Connection]: ReadConnection: ", err)
 		return
 	}
@@ -106,14 +106,14 @@ func (c *Connection) handleConnection(clientConn *net.Conn) {
 	// Client side
 	if !isFreedom {
 		// Get clientHello (if exist)
-		(*clientConn).SetReadDeadline(time.Now().Add(time.Duration(100) * time.Millisecond))
+		(*clientConn).SetReadDeadline(time.Now().Add(time.Millisecond * 100))
 		buffer, err := inboundHandler.Read()
 		if err != nil{
 			buffer = []byte{}
 		}
 
 		// Prepare destAddr, destNetwork
-		if err := outboundHandler.PrepareDestAddr(destAddr, destNetwork, buffer); err != nil {
+		if err := outboundHandler.SendDestAddr(destAddr, destNetwork, buffer); err != nil {
 			return
 		}
 	}

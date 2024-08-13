@@ -5,4 +5,5 @@ build.txt
 *.aar
 stealServer
 bin/
+.vscode/
 *.json

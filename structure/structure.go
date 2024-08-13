@@ -42,6 +42,10 @@ type Reality struct {
 	SNI                 string `json:"sni"`
 	ReadDeadLineSecond  int64  `json:"read_deadline_second"`
 	WriteDeadLineSecond int64  `json:"write_deadline_second"`
+	MinSplitPacket      int    `json:"min_split_packet"`
+	MaxSplitPacket      int    `json:"max_split_packet"`
+	Padding             int    `json:"padding"`
+	SubChunk            int    `json:"sub_chunk"`
 }
 
 type Tun struct {

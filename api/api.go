@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -39,7 +38,7 @@ func (a *Api) Start(addr string) error {
 
 func (a *Api) Stop() error {
 	if a.server != nil{
-		return (*a.server).Shutdown(context.TODO())
+		return (*a.server).Close()
 	}
 	return nil
 }
