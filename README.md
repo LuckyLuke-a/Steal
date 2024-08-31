@@ -60,7 +60,7 @@
                 "write_deadline_second": 15,
                 "min_split_packet": 500,
                 "max_split_packet": 800,
-                "padding": 3,
+                "padding": 4,
                 "sub_chunk": 10
 
             },
@@ -99,7 +99,7 @@
                 "write_deadline_second": 15,
                 "min_split_packet": 500,
                 "max_split_packet": 800,
-                "padding": 3,
+                "padding": 4,
                 "sub_chunk": 10
 
             },
